@@ -6,8 +6,9 @@ import os
 import requests
 import re
 import http.cookiejar
-from PyQt5.QtWidgets import QApplication, QComboBox, QGridLayout, QWidget, QLabel, QFileDialog, QPushButton, \
-    QMessageBox, QDialog, QLineEdit, QProgressDialog, QDesktopWidget, QCheckBox
+from PyQt5.QtWidgets import *
+from PyQt5.QtGui import *
+from PyQt5.QtCore import *
 
 DOWNLOAD_FORMATS = dict(
         WAV="?format=wav",
@@ -19,7 +20,7 @@ DOWNLOAD_FORMATS = dict(
 )
 SIGNIN_URL = "https://connect.monstercat.com/signin"
 DOWNLOAD_BASE = "https://connect.monstercat.com/album/"
-HOME_PATH = os.path.expanduser("~") + "/.monstercatconnectdownloader/"
+HOME_PATH = os.path.expanduser("~") + "/.monstercatconnect/"
 COOKIE_FILE = HOME_PATH + "connect.cookies"
 
 
@@ -265,7 +266,63 @@ class Downloader(QWidget):
             show_popup("Finished.", "Finished with errors. Probably cancelled.")
 
 
+class MyTableModel(QAbstractTableModel):
+    def __init__(self, datain, parent=None, *args):
+        QAbstractTableModel.__init__(self, parent, *args)
+        self.arraydata = datain
+
+    def rowCount(self, QModelIndex_parent=None, *args, **kwargs):
+        return len(self.arraydata)
+
+    def columnCount(self, QModelIndex_parent=None, *args, **kwargs):
+        return len(self.arraydata[0])
+
+    def data(self, index, int_role=None):
+        if not index.isValid():
+            return QVariant()
+        elif int_role != Qt.DisplayRole:
+            return QVariant()
+        return QVariant(self.arraydata[index.row()][index.column()])
+
+
+class Desktop(QWidget):
+    grid = None
+
+    def __init__(self):
+        super().__init__()
+        self.session = requests.Session()
+        self.session.cookies = http.cookiejar.MozillaCookieJar()
+        self.init_ui()
+
+    def init_ui(self):
+        self.grid = QGridLayout()
+        self.setLayout(self.grid)
+        print("hi")
+        table = QTableView()
+
+        my_array = [['00', '01', '02'],
+                    ['10', '11', '12'],
+                    ['20', '21', '22']]
+
+        tablemodel = MyTableModel(my_array, self)
+        table.setModel(tablemodel)
+
+        table.verticalHeader().hide()
+        # SET THE HEADER TEXT TO SOMETHING!!!
+        hd = table.horizontalHeader()
+
+        # ADD WIDGETS
+        self.grid.addWidget(table, *(1, 1))
+
+        # MOVE TO CENTER OF SCREEN
+        self.move(QDesktopWidget().availableGeometry().center() - self.frameGeometry().center())
+        self.setWindowTitle('MonstercatConnectDownloader')
+        self.show()
+
+
 if __name__ == '__main__':
+    print(PYQT_VERSION_STR)
     app = QApplication(sys.argv)
-    dl = Downloader()
+    # dl = Downloader()
+    desktop = Desktop()
     sys.exit(app.exec_())
