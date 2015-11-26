@@ -1,4 +1,4 @@
-# MonstercatConnectDownloader
+# MonstercatConnectDesktop
 Desktop client for Monstercat Connect with a (mass-)download function.
 
 ## Usage
