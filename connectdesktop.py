@@ -1,14 +1,14 @@
 #!/usr/bin/python3
-
-import sys
-import json
-import os
-import requests
-import re
 import http.cookiejar
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
+import json
+import operator
+import os
+import re
+import sys
+import requests
 from PyQt5.QtCore import *
+from PyQt5.QtWidgets import *
+from waitingspinnerwidget import QtWaitingSpinner
 
 DOWNLOAD_FORMATS = dict(
         WAV="?format=wav",
@@ -22,20 +22,18 @@ SIGNIN_URL = "https://connect.monstercat.com/signin"
 DOWNLOAD_BASE = "https://connect.monstercat.com/album/"
 HOME_PATH = os.path.expanduser("~") + "/.monstercatconnect/"
 COOKIE_FILE = HOME_PATH + "connect.cookies"
-
+TABLE_HEADER_DATA = ['Track', 'Artists', 'Release', '#', 'Length', 'BPM', 'Genres', 'Release Date']
 
 class SignInDialog(QDialog):
     username = None
     password = None
-    session = None
-    downloader = None
+    initiator = None
     checkbox = None
 
-    def __init__(self, downloader):
+    def __init__(self, initiator):
         super().__init__()
         self.init_ui()
-        self.session = downloader.session
-        self.downloader = downloader
+        self.initiator = initiator
 
     def init_ui(self):
         grid = QGridLayout()
@@ -60,16 +58,16 @@ class SignInDialog(QDialog):
     def login(self):
         print("Signing in...")
         payload = {"email": self.username.text(), "password": self.password.text()}
-        response_raw = self.session.post(SIGNIN_URL, data=payload)
+        response_raw = self.initiator.session.post(SIGNIN_URL, data=payload)
         response = json.loads(response_raw.text)
         if len(response) > 0:
             show_popup("Sign-In failed!", "Sign-In Error: " + response.get("message", "Unknown error"))
             return False
         if self.checkbox.isChecked():
-            save_cookies(self.session.cookies, COOKIE_FILE)
+            save_cookies(self.initiator.session.cookies, COOKIE_FILE)
         self.close()
         show_popup("Sign-In successful!", "You are successfully logged in!")
-        self.downloader.loggedIn = True
+        self.initiator.loggedIn = True
         return True
 
 
@@ -128,201 +126,178 @@ def load_cookies(filename):
     return cj, True
 
 
-class Downloader(QWidget):
-    combobox = None
-    grid = None
-    selected_file = None
-    session = None
-    loggedIn = False
-    openbutton = None
-    save_dir = None
-    choose_folder_button = None
-
-    def __init__(self):
-        super().__init__()
-        self.session = requests.Session()
-        self.session.cookies = http.cookiejar.MozillaCookieJar()
-        self.init_ui()
-
-    def init_ui(self):
-        self.grid = QGridLayout()
-        self.setLayout(self.grid)
-
-        self.combobox = QComboBox()
-        download_qualities = [
-            ("WAV", "?format=wav"),
-            ("MP3 320", "?format=mp3&bitRate=320"),
-            ("MP3 V0", "?format=mp3&quality=0"),
-            ("MP3 V2", "?format=mp3&quality=2"),
-            ("MP3 128", "?format=mp3&bitRate=128"),
-            ("FLAC", "?format=flac")
-        ]
-        for i in range(len(download_qualities)):
-            self.combobox.addItem(download_qualities[i][0], download_qualities[i][1])
-
-        self.openbutton = QPushButton("Select file")
-        self.openbutton.clicked.connect(self.show_open_file_dialog)
-
-        download_button = QPushButton("Download")
-        download_button.clicked.connect(self.download)
-
-        self.choose_folder_button = QPushButton("Select folder")
-        self.choose_folder_button.clicked.connect(self.show_select_folder_dialog)
-
-        # ADD WIDGETS
-        self.grid.addWidget(QLabel("Select your quality: "), *(1, 1))
-        self.grid.addWidget(self.combobox, *(1, 2))
-        self.grid.addWidget(QLabel("Please select your JSON file: "), *(2, 1))
-        self.grid.addWidget(self.openbutton, *(2, 2))
-        self.grid.addWidget(QLabel("Destination folder:"), *(3, 1))
-        self.grid.addWidget(self.choose_folder_button, *(3, 2))
-        self.grid.addWidget(QLabel(""), *(4, 1))
-        self.grid.addWidget(download_button, *(5, 2))
-
-        # MOVE TO CENTER OF SCREEN
-        self.move(QDesktopWidget().availableGeometry().center() - self.frameGeometry().center())
-        self.setWindowTitle('MonstercatConnectDownloader')
-        self.show()
-
-    def show_open_file_dialog(self):
-        filepicker = QFileDialog.getOpenFileName(self, 'Open file', os.path.expanduser("~"), "JSON file (*.json)")
-        if filepicker[0]:
-            self.selected_file = filepicker[0]
-            self.openbutton.setText("File selected")
-            return True
-        else:
-            return False
-
-    def show_select_folder_dialog(self):
-        # DIALOG WHERE TO SAVE
-        self.save_dir = QFileDialog.getExistingDirectory(self, "Select folder to download", os.path.expanduser("~"))
-        if not self.save_dir:
-            show_popup("Error", "No folder selected.")
-            return False
-        self.choose_folder_button.setText("Folder selected")
-        return True
-
-    def show_sign_in_dialog(self):
-        dialog = SignInDialog(self)
-        dialog.exec_()
-
-    def download(self):
-        # GET FILE
-        if not self.selected_file:
-            show_popup("Error", "Please select a file first.")
-            return False
-        if not self.save_dir:
-            show_popup("Error", "Please select a destination folder first.")
-            return False
-        with open(self.selected_file) as f:
-            album_ids = json.loads(f.read())
-
-        # GET SELECTED QUALITY
-        quality = self.combobox.currentData()
-
-        # LOAD COOKIES IF EXIST
-        cj, successful = load_cookies(COOKIE_FILE)
-        if successful:
-            self.session.cookies = cj
-            self.loggedIn = True
-            show_popup("Logged in", "Automatically logged in.")
-
-        # GET SESSION
-        if not self.loggedIn:
-            self.show_sign_in_dialog()
-
-        # CHECK IF LOGIN SUCESSFUL
-        if not self.loggedIn:
-            show_popup("Error", "Login failed.")
-            return
-        length = str(len(album_ids))
-        bar = QProgressDialog("Downloading songs (1/" + length + ")", "Cancel", 0, int(length))
-        bar.setWindowTitle("Downloading songs")
-        bar.setValue(0)
-        count = 1
-        downloadsuccess = True
-        # DOWNLOAD
-        for album_id in album_ids:
-            download_link = DOWNLOAD_BASE + album_id + "/download" + quality
-            success = download_file(download_link, self.save_dir, self.session)
-            if not success:
-                show_popup("Cancelled", "Download was cancelled.")
-                downloadsuccess = False
-                break
-
-            bar.setValue(count)
-            bar.setLabelText("Downloading songs (" + str(count) + "/" + length + ")")
-            count += 1
-            if bar.wasCanceled():
-                show_popup("Cancelled", "Download was cancelled.")
-                downloadsuccess = False
-                break
-            QApplication.processEvents()
-            # break     # activate for testing
-
-        if downloadsuccess:
-            show_popup("Success!", "Download finished!")
-        else:
-            show_popup("Finished.", "Finished with errors. Probably cancelled.")
-
-
 class MyTableModel(QAbstractTableModel):
-    def __init__(self, datain, parent=None, *args):
-        QAbstractTableModel.__init__(self, parent, *args)
+    def __init__(self, datain, headerdata, parent=None):
+        """ datain: a list of lists
+            headerdata: a list of strings
+        """
+        QAbstractTableModel.__init__(self, parent)
         self.arraydata = datain
+        self.headerdata = headerdata
 
-    def rowCount(self, QModelIndex_parent=None, *args, **kwargs):
+    def rowCount(self, parent=None, *args, **kwargs):
         return len(self.arraydata)
 
-    def columnCount(self, QModelIndex_parent=None, *args, **kwargs):
+    def columnCount(self, parent=None, *args, **kwargs):
         return len(self.arraydata[0])
 
-    def data(self, index, int_role=None):
+    def data(self, index, role=None):
         if not index.isValid():
             return QVariant()
-        elif int_role != Qt.DisplayRole:
+        elif role != Qt.DisplayRole:
             return QVariant()
         return QVariant(self.arraydata[index.row()][index.column()])
+
+    def headerData(self, col, orientation, role=None):
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+            return QVariant(self.headerdata[col])
+        return QVariant()
+
+    def sort(self, ncol, order=None):
+        self.arraydata = sorted(self.arraydata, key=operator.itemgetter(ncol))
+        if order == Qt.DescendingOrder:
+            self.arraydata.reverse()
+
+
+def check_logged_in(session):
+    response = session.get("https://connect.monstercat.com/session")
+    if response.text != "{}":
+        return True
+    print(response.text)
+    return False
 
 
 class Desktop(QWidget):
     grid = None
+    session = None
+    loggedIn = False
+    table = None
+    spinner = None
+    thread = None
+    obj = None
 
     def __init__(self):
         super().__init__()
-        self.session = requests.Session()
-        self.session.cookies = http.cookiejar.MozillaCookieJar()
         self.init_ui()
 
     def init_ui(self):
         self.grid = QGridLayout()
         self.setLayout(self.grid)
-        print("hi")
-        table = QTableView()
 
-        my_array = [['00', '01', '02'],
-                    ['10', '11', '12'],
-                    ['20', '21', '22']]
-
-        tablemodel = MyTableModel(my_array, self)
-        table.setModel(tablemodel)
-
-        table.verticalHeader().hide()
-        # SET THE HEADER TEXT TO SOMETHING!!!
-        hd = table.horizontalHeader()
-
-        # ADD WIDGETS
-        self.grid.addWidget(table, *(1, 1))
+        # SPINNER
+        self.spinner = QtWaitingSpinner(self)
+        self.spinner.setMinimumTrailOpacity(15.00)
+        self.spinner.setTrailFadePercentage(70.00)
+        self.spinner.setRoundness(70.00)
+        self.spinner.setNumberOfLines(12)
+        self.spinner.setLineLength(10)
+        self.spinner.setLineWidth(5)
+        self.spinner.setInnerRadius(10)
+        self.spinner.setRevolutionsPerSecond(1)
+        self.spinner.start()
+        self.grid.addWidget(self.spinner, *(1, 1))
 
         # MOVE TO CENTER OF SCREEN
         self.move(QDesktopWidget().availableGeometry().center() - self.frameGeometry().center())
         self.setWindowTitle('MonstercatConnectDownloader')
+        self.setMinimumSize(300, 300)
+        # self.showMaximized()
         self.show()
+
+        self.table = QTableView()
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.doubleClicked.connect(self.play_song)
+        # CREATE THREAD
+        self.thread = QThread()
+        self.obj = Worker()
+        self.obj.set_desktop(self)
+        self.obj.dataReady.connect(self.tableready)
+        self.obj.finished.connect(self.thread.quit)
+        self.obj.debugTrackList.connect(self.debugTrackList)
+        self.obj.moveToThread(self.thread)
+        self.thread.started.connect(self.obj.init_table_and_session)
+        print("starting thread")
+        self.thread.start()
+        print("started thread")
+
+    def play_song(self):
+        self.table.select
+
+    def debugTrackList(self, tracklist):
+        print("break-point here")
+        # for track in tracklist:
+        #     row = [track.get("title", "unknown title"), track.get("artistsTitle", "unknown artists"), "release!!", "tracknr", track.get("duration", "unknown duration"), track.get("bpm", "unknown bpm"), ', '.join(track.get("genres", ["unknown genre"])), track.get("releaseDate", "unknown releaseDate")]
+        #     print(row)
+
+    def tableready(self, tracks):
+        print("creating model")
+        model = MyTableModel(tracks, TABLE_HEADER_DATA)
+        print("setting tablemodel")
+        self.table.setModel(model)
+        print("stopping spinner")
+        self.spinner.stop()
+        self.table.resizeColumnsToContents()
+        print("replacing widget")
+        self.grid.replaceWidget(self.spinner, self.table)
+        print("replacing finished")
+        # self.grid.addWidget(self.table, *(1, 1))
+
+
+class Worker(QObject):
+    finished = pyqtSignal()
+    dataReady = pyqtSignal(list)
+    debugTrackList = pyqtSignal(list)
+    main = None
+
+    def set_desktop(self, param):
+        self.main = param
+
+    @pyqtSlot()
+    def init_table_and_session(self):
+        print("initializing table and session")
+
+        # INTIALIZE SESSION
+        main.session = requests.Session()
+        cj, success = load_cookies(COOKIE_FILE)
+        main.session.cookies = cj
+        if not success:
+            # SignInDialog(self).exec()
+            print("signin dialog removed")
+        if not check_logged_in(self.main.session):
+            show_popup("ERROR!", "Sign-In Error! Please restart")
+
+        tracklist = load_track_list(self.main.session)
+        self.debugTrackList.emit(tracklist)
+        # INITIALIZE TABLE
+        tracks = []
+        # counter = 0
+        for track in tracklist:
+            # if counter > 10:
+            #     break
+            row = [track.get("title", "unknown title"), track.get("artistsTitle", "unknown artists"), "release!!", "tracknr", track.get("duration", "unknown duration"), track.get("bpm", "unknown bpm"), ', '.join(track.get("genres", ["unknown genre"])), track.get("releaseDate", "unknown releaseDate")]
+            tracks.append(row)
+            # counter += 1
+
+        # main.table.setModel(tablemodel)
+        self.dataReady.emit(tracks)
+        print("emitting 'finished'")
+        self.finished.emit()
+
+
+def load_track_list(session):
+    # GET TRACK LIST
+    print("Loading track list...")
+    # tracks_raw = session.get("https://connect.monstercat.com/tracks")
+    tracks_raw = session.get("http://localhost/tracks")
+
+    # PARSE RESPONSE INTO JSON
+    tracks = json.loads(tracks_raw.text)
+    return tracks
 
 
 if __name__ == '__main__':
     print(PYQT_VERSION_STR)
     app = QApplication(sys.argv)
-    # dl = Downloader()
-    desktop = Desktop()
-    sys.exit(app.exec_())
+    main = Desktop()
+    sys.exit(app.exec())
