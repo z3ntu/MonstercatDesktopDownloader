@@ -201,8 +201,8 @@ class Desktop(QWidget):
         self.move(QDesktopWidget().availableGeometry().center() - self.frameGeometry().center())
         self.setWindowTitle('MonstercatConnectDownloader')
         self.setMinimumSize(300, 300)
-        # self.showMaximized()
-        self.show()
+        self.showMaximized()
+        # self.show()
 
         self.table = QTableView()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
@@ -217,12 +217,26 @@ class Desktop(QWidget):
         self.obj.debugTrackList.connect(self.debugTrackList)
         self.obj.moveToThread(self.thread)
         self.thread.started.connect(self.obj.init_table_and_session)
+
+        # INTIALIZE SESSION
+        self.session = requests.Session()
+        cj, success = load_cookies(COOKIE_FILE)
+        self.session.cookies = cj
+        if not success:
+            SignInDialog(self).exec()
+            # print("signin dialog removed")
+            # sys.exit(1)
+        if not check_logged_in(self.session):
+            show_popup("ERROR!", "Sign-In Error! Please restart")
+            sys.exit(1)
         print("starting thread")
         self.thread.start()
         print("started thread")
 
-    def play_song(self):
-        self.table.select
+    def play_song(self, index):
+        print(index.row())
+        # qmodelindex = self.table.selectedIndexes()
+        # print(str(qmodelindex.row()))
 
     def debugTrackList(self, tracklist):
         print("break-point here")
@@ -255,31 +269,16 @@ class Worker(QObject):
 
     @pyqtSlot()
     def init_table_and_session(self):
-        print("initializing table and session")
-
-        # INTIALIZE SESSION
-        main.session = requests.Session()
-        cj, success = load_cookies(COOKIE_FILE)
-        main.session.cookies = cj
-        if not success:
-            # SignInDialog(self).exec()
-            print("signin dialog removed")
-        if not check_logged_in(self.main.session):
-            show_popup("ERROR!", "Sign-In Error! Please restart")
+        print("Initializing table")
 
         tracklist = load_track_list(self.main.session)
         self.debugTrackList.emit(tracklist)
         # INITIALIZE TABLE
         tracks = []
-        # counter = 0
         for track in tracklist:
-            # if counter > 10:
-            #     break
             row = [track.get("title", "unknown title"), track.get("artistsTitle", "unknown artists"), "release!!", "tracknr", track.get("duration", "unknown duration"), track.get("bpm", "unknown bpm"), ', '.join(track.get("genres", ["unknown genre"])), track.get("releaseDate", "unknown releaseDate")]
             tracks.append(row)
-            # counter += 1
 
-        # main.table.setModel(tablemodel)
         self.dataReady.emit(tracks)
         print("emitting 'finished'")
         self.finished.emit()
@@ -288,8 +287,8 @@ class Worker(QObject):
 def load_track_list(session):
     # GET TRACK LIST
     print("Loading track list...")
-    # tracks_raw = session.get("https://connect.monstercat.com/tracks")
-    tracks_raw = session.get("http://localhost/tracks")
+    tracks_raw = session.get("https://connect.monstercat.com/tracks")
+    # tracks_raw = session.get("http://localhost/tracks")
 
     # PARSE RESPONSE INTO JSON
     tracks = json.loads(tracks_raw.text)
