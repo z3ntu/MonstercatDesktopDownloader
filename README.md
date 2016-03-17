@@ -1,15 +1,16 @@
-# MonstercatConnectDesktop
-Desktop client for Monstercat Connect with a (mass-)download function.
+# MonstercatDesktopDownloader
+Tray application which checks for new releases automatically and downloads them.
 
 ## Usage
 What you need:
 - Python 3
 - PyQt5
 - Python Requests
-Detailed instructions in the [Wiki](https://github.com/z3ntu/MonstercatConnectDownloader/wiki#detailed-instructions) (currently from the Downloader).
 
 How to run:
-`./connectdesktop.py`
+`./desktopdownloader.py`
+
+**Music gets downloaded into `$HOME/.monstercatconnect/downloads`!**
 
 ## Screenshots
 _coming soon_
