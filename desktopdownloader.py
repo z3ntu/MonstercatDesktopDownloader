@@ -36,13 +36,13 @@ COOKIE_FILE = DATA_PATH + "connect.cookies"
 class SignInDialog(QDialog):
     username = None
     password = None
-    initiator = None
+    session = None
     checkbox = None
 
-    def __init__(self, initiator):
+    def __init__(self, session):
         super().__init__()
         self.init_ui()
-        self.initiator = initiator
+        self.session = session
 
     def init_ui(self):
         grid = QGridLayout()
@@ -67,16 +67,15 @@ class SignInDialog(QDialog):
     def login(self):
         print("Signing in...")
         payload = {"email": self.username.text(), "password": self.password.text()}
-        response_raw = self.initiator.session.post(SIGNIN_URL, data=payload)
+        response_raw = self.session.post(SIGNIN_URL, data=payload)
         response = json.loads(response_raw.text)
         if len(response) > 0:
             show_popup("Sign-In failed!", "Sign-In Error: " + response.get("message", "Unknown error"))
             return False
         if self.checkbox.isChecked():
-            save_cookies(self.initiator.session.cookies, COOKIE_FILE)
+            save_cookies(self.session.cookies, COOKIE_FILE)
         self.close()
         show_popup("Sign-In successful!", "You are successfully logged in!")
-        self.initiator.loggedIn = True
         return True
 
 
