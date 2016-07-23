@@ -10,9 +10,11 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 
+import signal
+
 RELEASE_API_URL = "https://connect.monstercat.com/api/catalog/release"
 # RELEASE_API_URL = "http://localhost/release"
-SESSION_CHECK_URL = "https://connect.monstercat.com/session"
+SESSION_CHECK_URL = "https://connect.monstercat.com/api/self/session"
 SIGNIN_URL = "https://connect.monstercat.com/signin"
 DOWNLOAD_BASE = "https://connect.monstercat.com/api/release/"
 
@@ -88,7 +90,7 @@ class SystemTrayIcon(QSystemTrayIcon):
         check_new_releases_action.triggered.connect(lambda: check_new_release(self, session))
 
         exit_action = menu.addAction("Exit")
-        exit_action.triggered.connect(parent.close)
+        exit_action.triggered.connect(sys.exit)
 
         self.setContextMenu(menu)
 
@@ -155,8 +157,11 @@ def load_cookies(filename):
 
 
 def check_logged_in(session):
-    response = session.get(SESSION_CHECK_URL)
-    if response.text != "{}":
+    response_raw = session.get(SESSION_CHECK_URL)
+    response = json.loads(response_raw.text)
+    if not response.get("user"):
+        return False
+    if response.get("user").get("subscriber", False) == True:
         return True
     print(response.text)
     return False
@@ -225,13 +230,14 @@ def get_album_ids(albums):
     return album_ids
 
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
     print(PYQT_VERSION_STR)
     create_directories()
     app = QApplication(sys.argv)
-    # main = Desktop()
+    app.setApplicationName("MonstercatDesktopDownloader")
     parent = QWidget()
     tray_icon = SystemTrayIcon(QIcon('Monstercat.png'), parent)
-
+    tray_icon.setToolTip("MonstercatDesktopDownloader")
     timer = QTimer()
     timer.timeout.connect(lambda: check_new_release(tray_icon, session))
     timer.setInterval(CHECK_INTERVAL)
@@ -246,6 +252,7 @@ if __name__ == '__main__':
     if not success:
         SignInDialog(session).exec()
     if not check_logged_in(session):
-        show_popup("ERROR!", "Sign-In Error! Please restart")
+        os.remove(COOKIE_FILE)
+        show_popup("ERROR!", "Sign-In Error! Please restart!")
         sys.exit(1)
     sys.exit(app.exec())
